@@ -12,7 +12,10 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -241,5 +244,6 @@ public class NacosService {
         for (NacosConfig config : configs) {
             System.out.println(config.getFileName() + ": " + config.getGroup());
         }
+//        nacosService.publishConfig("dev", "test2.properties", "DEFAULT_GROUP", "test=2\n", "properties");
     }
 }

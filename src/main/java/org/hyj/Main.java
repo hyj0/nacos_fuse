@@ -1,5 +1,6 @@
 package org.hyj;
 
+import jnr.ffi.Platform;
 import org.hyj.fuse.NacosFuseFileSystem;
 import org.hyj.service.NacosService;
 import ru.serce.jnrfuse.FuseFS;
@@ -14,9 +15,16 @@ public class Main {
     public static void main(String[] args) {
         // 默认配置
         String serverAddr = "10.9.2.85:8848";
-        String mountPoint = "/tmp/nacos-config";
-        mountPoint = "w:\\";
-        
+
+        String mountPoint;
+        switch (Platform.getNativePlatform().getOS()) {
+            case WINDOWS:
+                mountPoint = "N:\\";
+                break;
+            default:
+                mountPoint = "/tmp/nacos_mnt";
+        }
+
         // 解析命令行参数
         if (args.length >= 1) {
             serverAddr = args[0];
@@ -51,7 +59,25 @@ public class Main {
             
             // 创建FUSE文件系统
             FuseFS fuseFS = new NacosFuseFileSystem(nacosService);
-            
+//            fuseFS = new MemoryFS();
+            /*
+removed ‘Directory with files/hello.txt’
+removed ‘Directory with files/hello again.txt’
+removed ‘Directory with files/Sample nested directory/So deep.txt’
+removed directory: ‘Directory with files/Sample nested directory’
+removed directory: ‘Directory with files’
+removed directory: ‘Sample directory’
+removed ‘Sample file.txt’
+             */
+//            fuseFS.unlink("/Directory with files/hello.txt");
+//            fuseFS.unlink("/Directory with files/hello again.txt");
+//            fuseFS.unlink("/Directory with files/Sample nested directory/So deep.txt");
+//            fuseFS.rmdir("/Directory with files/Sample nested directory");
+//            fuseFS.rmdir("/Directory with files");
+//            fuseFS.rmdir("/Sample directory");
+//            fuseFS.unlink("/Sample file.txt");
+
+
             // 挂载文件系统（阻塞调用）
             fuseFS.mount(Paths.get(mountPoint), true, true);
             
