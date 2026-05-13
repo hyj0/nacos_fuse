@@ -88,19 +88,19 @@ removed 'Sample file.txt'
 
         String[] parts = splitPath(path);
         
-        if (parts.length != 5) {
+        if (parts.length != 4) {
             return -ErrorCodes.EISDIR();
         }
         
-        String serverName = parts[1];
-        String namespace = parts[2].equals("_default") ? "" : parts[2];
-        String group = parts[3];
-        String fileName = parts[4];
+        String serverName = parts[0];
+        String namespace = parts[1].equals("_default") ? "" : parts[1];
+        String group = parts[2];
+        String fileName = parts[3];
         
         // 检查服务器是否为只读模式
         if (multiNacosService.isReadOnly(serverName)) {
             System.err.println("Server " + serverName + " is read-only");
-            return -ErrorCodes.EROFS();
+            return -ErrorCodes.EPERM();
         }
 
         List<NacosConfig> configs = getConfigs(serverName, namespace);
@@ -116,10 +116,41 @@ removed 'Sample file.txt'
         // 从文件名中提取 dataId（去掉扩展名）
         String dataId = extractDataId(fileName);
         
-        // 读取新内容
+        // 先从父类中读取当前文件的原始内容
+        FileStat stat = new FileStat(Runtime.getSystemRuntime());
+        int ret = getattr(path, stat);
+        if (ret != 0) {
+            return -ErrorCodes.EIO();
+        }
+        
+        long fileSize = stat.st_size.longValue();
+        byte[] originalContent = new byte[(int) fileSize];
+        if (fileSize > 0) {
+            Pointer originalBuf = Pointer.wrap(Runtime.getSystemRuntime(), ByteBuffer.allocate((int) fileSize));
+            ret = read(path, originalBuf, fileSize, 0, null);
+            if (ret < 0) {
+                return -ErrorCodes.EIO();
+            }
+            originalBuf.get(0, originalContent, 0, (int) fileSize);
+        }
+        
+        // 读取新写入的内容
         byte[] newContent = new byte[(int) size];
         buf.get(0, newContent, 0, (int) size);
-        String contentStr = new String(newContent, StandardCharsets.UTF_8);
+        
+        // 合并变更：将新内容写入到原始内容的指定偏移位置
+        byte[] finalContent;
+        long endOffset = offset + size;
+        if (endOffset > fileSize) {
+            // 如果写入超出原文件大小，需要扩展数组
+            finalContent = new byte[(int) endOffset];
+            System.arraycopy(originalContent, 0, finalContent, 0, (int) fileSize);
+        } else {
+            finalContent = originalContent;
+        }
+        System.arraycopy(newContent, 0, finalContent, (int) offset, (int) size);
+        
+        String contentStr = new String(finalContent, StandardCharsets.UTF_8);
         
         // 判断配置类型
         String type = detectType(fileName);
@@ -146,11 +177,11 @@ removed 'Sample file.txt'
         System.out.println("create: " + path);
         String[] parts = splitPath(path);
 
-        if (parts.length != 5) {
+        if (parts.length != 4) {
             return -ErrorCodes.EISDIR();
         }
         
-        String serverName = parts[1];
+        String serverName = parts[0];
         // 检查服务器是否为只读模式
         if (multiNacosService.isReadOnly(serverName)) {
             System.err.println("Server " + serverName + " is read-only");
@@ -170,14 +201,14 @@ removed 'Sample file.txt'
         // 注意：实际删除配置需要谨慎，这里暂时不支持删除
         String[] parts = splitPath(path);
 
-        if (parts.length != 5) {
+        if (parts.length != 4) {
             return -ErrorCodes.EISDIR();
         }
 
-        String serverName = parts[1];
-        String namespace = parts[2].equals("_default") ? "" : parts[2];
-        String group = parts[3];
-        String fileName = parts[4];
+        String serverName = parts[0];
+        String namespace = parts[1].equals("_default") ? "" : parts[2];
+        String group = parts[2];
+        String fileName = parts[3];
 
         List<NacosConfig> configs = getConfigs(serverName, namespace);
         Optional<NacosConfig> configOpt = configs.stream()
@@ -204,14 +235,14 @@ removed 'Sample file.txt'
 
         String[] parts = splitPath(newName);
 
-        if (parts.length != 5) {
+        if (parts.length != 4) {
             return -ErrorCodes.EISDIR();
         }
 
-        String serverName = parts[1];
-        String namespace = parts[2].equals("_default") ? "" : parts[2];
-        String group = parts[3];
-        String fileName = parts[4];
+        String serverName = parts[0];
+        String namespace = parts[1].equals("_default") ? "" : parts[1];
+        String group = parts[2];
+        String fileName = parts[3];
         
         // 检查服务器是否为只读模式
         if (multiNacosService.isReadOnly(serverName)) {
@@ -229,7 +260,7 @@ removed 'Sample file.txt'
             // Implement rename logic manually instead of calling super.rename()
             // Get the source path components
             String[] srcParts = splitPath(path);
-            if (srcParts.length != 5) {
+            if (srcParts.length != 4) {
                 return -ErrorCodes.EISDIR();
             }
             
@@ -347,14 +378,14 @@ removed 'Sample file.txt'
     private NacosConfig getNacosConfigWithPath(String path) {
         String[] parts = splitPath(path);
 
-        if (parts.length != 5) {
+        if (parts.length != 4) {
             return null;
         }
 
-        String serverName = parts[1];
-        String namespace = parts[2].equals("_default") ? "" : parts[2];
-        String group = parts[3];
-        String fileName = parts[4];
+        String serverName = parts[0];
+        String namespace = parts[1].equals("_default") ? "" : parts[1];
+        String group = parts[2];
+        String fileName = parts[3];
 
         List<NacosConfig> configs = getConfigs(serverName, namespace);
         Optional<NacosConfig> configOpt = configs.stream()
