@@ -89,7 +89,7 @@ removed 'Sample file.txt'
         String[] parts = splitPath(path);
         
         if (parts.length != 4) {
-            return -ErrorCodes.EISDIR();
+            return super.write(path, buf, size, offset, fi);
         }
         
         String serverName = parts[0];
@@ -97,11 +97,6 @@ removed 'Sample file.txt'
         String group = parts[2];
         String fileName = parts[3];
         
-        // 检查服务器是否为只读模式
-        if (multiNacosService.isReadOnly(serverName)) {
-            System.err.println("Server " + serverName + " is read-only");
-            return -ErrorCodes.EPERM();
-        }
 
         List<NacosConfig> configs = getConfigs(serverName, namespace);
         Optional<NacosConfig> configOpt = configs.stream()
@@ -113,8 +108,14 @@ removed 'Sample file.txt'
 //            return -ErrorCodes.ENOENT();
         }
 
+         // 检查服务器是否为只读模式
+        if (multiNacosService.isReadOnly(serverName)) {
+            System.err.println("Server " + serverName + " is read-only");
+            return -ErrorCodes.EPERM();
+        }
+
         // 从文件名中提取 dataId（去掉扩展名）
-        String dataId = extractDataId(fileName);
+        String dataId = (fileName);
         
         // 先从父类中读取当前文件的原始内容
         FileStat stat = new FileStat(Runtime.getSystemRuntime());
@@ -178,14 +179,14 @@ removed 'Sample file.txt'
         String[] parts = splitPath(path);
 
         if (parts.length != 4) {
-            return -ErrorCodes.EISDIR();
+            return super.create(path, mode, fi);
         }
         
         String serverName = parts[0];
         // 检查服务器是否为只读模式
         if (multiNacosService.isReadOnly(serverName)) {
             System.err.println("Server " + serverName + " is read-only");
-            return -ErrorCodes.EROFS();
+//            return -ErrorCodes.EROFS();
         }
         
         // FUSE中创建文件后通常会立即写入，这里返回成功
@@ -202,7 +203,7 @@ removed 'Sample file.txt'
         String[] parts = splitPath(path);
 
         if (parts.length != 4) {
-            return -ErrorCodes.EISDIR();
+            return super.unlink(path);
         }
 
         String serverName = parts[0];
@@ -236,7 +237,7 @@ removed 'Sample file.txt'
         String[] parts = splitPath(newName);
 
         if (parts.length != 4) {
-            return -ErrorCodes.EISDIR();
+            return super.rename(path, newName);
         }
 
         String serverName = parts[0];
@@ -244,11 +245,7 @@ removed 'Sample file.txt'
         String group = parts[2];
         String fileName = parts[3];
         
-        // 检查服务器是否为只读模式
-        if (multiNacosService.isReadOnly(serverName)) {
-            System.err.println("Server " + serverName + " is read-only");
-            return -ErrorCodes.EROFS();
-        }
+
 
         List<NacosConfig> configs = getConfigs(serverName, namespace);
         Optional<NacosConfig> configOpt = configs.stream()
@@ -307,6 +304,11 @@ removed 'Sample file.txt'
             return ret;
         }
 
+         // 检查服务器是否为只读模式
+        if (multiNacosService.isReadOnly(serverName)) {
+            System.err.println("Server " + serverName + " is read-only");
+            return -ErrorCodes.EPERM();
+        }
         // For Nacos-managed files, publish the renamed config
         FileStat stat = new FileStat(Runtime.getSystemRuntime());
         int ret = getattr(path, stat);
@@ -426,6 +428,8 @@ removed 'Sample file.txt'
             return "json";
         } else if (fileName.endsWith(".xml")) {
             return "xml";
+        } else if (fileName.endsWith(".properties")) {
+            return "properties";
         } else {
             return "text";
         }

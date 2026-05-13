@@ -54,9 +54,9 @@ public class NacosConfig {
      * 生成文件名：dataId + "." + type
      */
     public String getFileName() {
-        if (type != null && !type.isEmpty()) {
-            return dataId + "." + type.toLowerCase();
-        }
+//        if (type != null && !type.isEmpty()) {
+//            return dataId + "." + type.toLowerCase();
+//        }
         return dataId;
     }
 }

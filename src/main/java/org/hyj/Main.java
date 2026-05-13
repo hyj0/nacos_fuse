@@ -24,7 +24,7 @@ public class Main {
                 mountPoint = "N:\\";
                 break;
             default:
-                mountPoint = "/tmp/nacos_mnt";
+                mountPoint = "./configs";
         }
 
         // 解析命令行参数
