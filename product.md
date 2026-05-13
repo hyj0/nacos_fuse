@@ -200,7 +200,91 @@ get config content 使用java sdk， <https://nacos.io/docs/v2.4/manual/user/jav
 
 # 实现将nacos配置文件挂载到本地
 
+目前：
 目录结构
-/-namespaces1&#x2013;config files
-使用nacos接口
+#### 路径映射
+```
+/namespaces/                                    → 根目录
+/namespaces/{namespace}/                        → 命名空间目录
+/namespaces/{namespace}/{group}/                → 分组目录
+/namespaces/{namespace}/{group}/{config_file}   → 配置文件
+```
+### 目录结构示例
+
+```
+/mount-point/
+└── namespaces/
+    ├── _default/              # 默认命名空间
+    │   └── DEFAULT_GROUP/
+    │       ├── application.properties
+    │       └── config.yml
+    └── phoenix-test/          # 自定义命名空间
+        └── DEFAULT_GROUP/
+            └── application.yml
+```
+修改为支持多个nacos服务， 
+目录结构改为：
+```
+/mount-point/
+|── nacos-server1/
+|   ├── _default/              # 默认命名空间
+|   │   └── DEFAULT_GROUP/
+|   │       ├── application.properties
+|   │       └── config.yml
+|   └── phoenix-test/          # 自定义命名空间
+|       └── DEFAULT_GROUP/
+|           └── application.yml
+|           
+└── nacos-server2/
+    ├── _default/              # 默认命名空间
+    │   └── DEFAULT_GROUP/
+    │       ├── application.properties
+    │       └── config.yml
+    └── phoenix-test/          # 自定义命名空间
+        └── DEFAULT_GROUP/
+            └── application.yml
+```
+需要用yaml配置支持多个nacos服务
+```yaml
+nacos:
+  servers:
+    - name: nacos-server1
+      url: http://127.0.0.1:8848
+      namespace-pattern: "*"
+      read-only: false
+    - name: nacos-server2
+      url: http://127.0.0.1:8849
+      namespace-pattern: "^(test|dev)$"
+      read-only: true
+```
+
+## 实现说明
+
+### 核心类
+
+1. **MultiNacosConfig**: 多服务器配置模型
+   - `NacosServerConfig`: 单个服务器配置（包含 name, url, namespacePattern, readOnly）
+
+2. **MultiNacosService**: 多服务器管理服务
+   - 从 YAML 配置文件加载多个 Nacos 服务器配置
+   - 管理多个 NacosService 实例
+   - 支持命名空间过滤（通过正则表达式）
+   - 支持只读模式控制
+
+3. **NacosFuseFileSystem**: FUSE 文件系统实现
+   - 新的目录结构: `/{server-name}/{namespace}/{group}/{config_file}`
+   - 支持多服务器的配置读写
+   - 对只读服务器进行写保护
+
+### 使用方法
+
+```bash
+# 使用配置文件启动
+java -jar target/nacos_fuse-1.0-SNAPSHOT.jar config.yaml /tmp/nacos_mnt
+
+# 或使用默认配置文件
+java -jar target/nacos_fuse-1.0-SNAPSHOT.jar
+```
+
+详细文档请参考 [MULTI_SERVER.md](MULTI_SERVER.md)
 

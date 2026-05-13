@@ -1,5 +1,5 @@
 @echo off
-REM Nacos FUSE 启动脚本 (Windows)
+REM Nacos FUSE 启动脚本 (Windows) - 支持多服务器配置
 
 echo ========================================
 echo Nacos FUSE File System - Build and Run
@@ -31,16 +31,16 @@ echo [SUCCESS] Build completed
 echo.
 
 REM 设置默认参数
-set NACOS_SERVER=10.9.2.85:8848
+set CONFIG_FILE=config.yaml
 set MOUNT_POINT=N:
 
 REM 如果提供了参数，使用参数
-if not "%~1"=="" set NACOS_SERVER=%~1
+if not "%~1"=="" set CONFIG_FILE=%~1
 if not "%~2"=="" set MOUNT_POINT=%~2
 
 echo ========================================
-echo Starting Nacos FUSE...
-echo Server: %NACOS_SERVER%
+echo Starting Nacos FUSE (Multi-Server)...
+echo Config File: %CONFIG_FILE%
 echo Mount Point: %MOUNT_POINT%
 echo ========================================
 echo.
@@ -49,6 +49,6 @@ echo Download from: https://winfsp.dev/rel/
 echo.
 
 REM 运行程序
-java -jar target\nacos_fuse-1.0-SNAPSHOT.jar %NACOS_SERVER% %MOUNT_POINT%
+java -jar target\nacos_fuse-1.0-SNAPSHOT.jar %CONFIG_FILE% %MOUNT_POINT%
 
 pause

@@ -3,6 +3,7 @@ package org.hyj.fuse;
 import jnr.ffi.Pointer;
 import jnr.ffi.Runtime;
 import org.hyj.model.NacosConfig;
+import org.hyj.service.MultiNacosService;
 import org.hyj.service.NacosService;
 import ru.serce.jnrfuse.ErrorCodes;
 import ru.serce.jnrfuse.examples.MemoryFS;
@@ -15,24 +16,25 @@ import java.util.*;
 
 /**
  * Nacos FUSE文件系统实现
- * 目录结构: /namespaces/{namespace}/{group}/{config_file}
+ * 目录结构: /{server-name}/{namespace}/{group}/{config_file}
  */
 public class NacosFuseFileSystem extends MemoryFS {
-    private final NacosService nacosService;
+    private final MultiNacosService multiNacosService;
     
     // 缓存配置信息，避免频繁请求
+    // Key格式: serverName:namespace
     private final Map<String, List<NacosConfig>> configsCache = new HashMap<>();
     
-    public NacosFuseFileSystem(NacosService nacosService) {
-        this.nacosService = nacosService;
+    public NacosFuseFileSystem(MultiNacosService multiNacosService) {
+        this.multiNacosService = multiNacosService;
           /*
-removed ‘Directory with files/hello.txt’
-removed ‘Directory with files/hello again.txt’
-removed ‘Directory with files/Sample nested directory/So deep.txt’
-removed directory: ‘Directory with files/Sample nested directory’
-removed directory: ‘Directory with files’
-removed directory: ‘Sample directory’
-removed ‘Sample file.txt’
+removed 'Directory with files/hello.txt'
+removed 'Directory with files/hello again.txt'
+removed 'Directory with files/Sample nested directory/So deep.txt'
+removed directory: 'Directory with files/Sample nested directory'
+removed directory: 'Directory with files'
+removed directory: 'Sample directory'
+removed 'Sample file.txt'
              */
             super.unlink("/Directory with files/hello.txt");
             super.unlink("/Directory with files/hello again.txt");
@@ -41,27 +43,40 @@ removed ‘Sample file.txt’
             super.rmdir("/Directory with files");
             super.rmdir("/Sample directory");
             super.unlink("/Sample file.txt");
-            super.mkdir("/namespaces", 0777);
-            nacosService.getNamespaces().forEach(ns -> {
-                String displayName = ns.isEmpty() ? "_default" : ns;
-                super.mkdir("/namespaces/" + displayName, 0777);
-                List<NacosConfig> configs = get_configs(displayName);
-                // 提取所有唯一的分组
-                Set<String> groups = new LinkedHashSet<>();
-                for (NacosConfig config : configs) {
-                    groups.add(config.getGroup());
-                }
-                for (String group : groups) {
-                    super.mkdir("/namespaces/" + displayName + "/" + group, 0777);
-                    configs.forEach(config -> {
-                        if (config.getGroup().equals( group)) {
-                            super.create("/namespaces/" + displayName + "/" + group + "/" + config.getFileName(), 0777, null);
-                            Pointer buf = Pointer.wrap(Runtime.getSystemRuntime(), ByteBuffer.wrap(config.getContent().getBytes(StandardCharsets.UTF_8)));
-                            super.write("/namespaces/" + displayName + "/" + group + "/" + config.getFileName(), buf, buf.size(), 0, null);
+            
+            // 为每个服务器创建根目录
+            for (String serverName : multiNacosService.getServerNames()) {
+                super.mkdir("/" + serverName, 0777);
+                
+                // 获取该服务器的命名空间列表
+                List<String> namespaces = multiNacosService.getNamespacesForServer(serverName);
+                
+                for (String namespace : namespaces) {
+                    String displayName = namespace.isEmpty() ? "_default" : namespace;
+                    super.mkdir("/" + serverName + "/" + displayName, 0777);
+                    
+                    // 获取该命名空间下的所有配置
+                    List<NacosConfig> configs = getConfigs(serverName, namespace);
+                    
+                    // 提取所有唯一的分组
+                    Set<String> groups = new LinkedHashSet<>();
+                    for (NacosConfig config : configs) {
+                        groups.add(config.getGroup());
+                    }
+                    
+                    // 为每个分组创建目录和文件
+                    for (String group : groups) {
+                        super.mkdir("/" + serverName + "/" + displayName + "/" + group, 0777);
+                        for (NacosConfig config : configs) {
+                            if (config.getGroup().equals(group)) {
+                                super.create("/" + serverName + "/" + displayName + "/" + group + "/" + config.getFileName(), 0777, null);
+                                Pointer buf = Pointer.wrap(Runtime.getSystemRuntime(), ByteBuffer.wrap(config.getContent().getBytes(StandardCharsets.UTF_8)));
+                                super.write("/" + serverName + "/" + displayName + "/" + group + "/" + config.getFileName(), buf, buf.size(), 0, null);
+                            }
                         }
-                    });
+                    }
                 }
-            });
+            }
     }
     
     /**
@@ -73,15 +88,22 @@ removed ‘Sample file.txt’
 
         String[] parts = splitPath(path);
         
-        if (parts.length != 4) {
+        if (parts.length != 5) {
             return -ErrorCodes.EISDIR();
         }
         
-        String namespace = parts[1].equals("_default") ? "" : parts[1];
-        String group = parts[2];
-        String fileName = parts[3];
+        String serverName = parts[1];
+        String namespace = parts[2].equals("_default") ? "" : parts[2];
+        String group = parts[3];
+        String fileName = parts[4];
+        
+        // 检查服务器是否为只读模式
+        if (multiNacosService.isReadOnly(serverName)) {
+            System.err.println("Server " + serverName + " is read-only");
+            return -ErrorCodes.EROFS();
+        }
 
-        List<NacosConfig> configs = get_configs(namespace);
+        List<NacosConfig> configs = getConfigs(serverName, namespace);
         Optional<NacosConfig> configOpt = configs.stream()
             .filter(c -> c.getGroup().equals(group) && c.getFileName().equals(fileName))
             .findFirst();
@@ -103,11 +125,12 @@ removed ‘Sample file.txt’
         String type = detectType(fileName);
         
         // 发布配置
+        NacosService nacosService = multiNacosService.getNacosService(serverName);
         boolean success = nacosService.publishConfig(namespace, dataId, group, contentStr, type);
         
         if (success) {
             // 清除缓存
-            configsCache.remove(namespace);
+            configsCache.remove(serverName + ":" + namespace);
             int writeSize = super.write(path, buf, size, offset, fi);
             return (int) size;
         } else {
@@ -123,9 +146,17 @@ removed ‘Sample file.txt’
         System.out.println("create: " + path);
         String[] parts = splitPath(path);
 
-        if (parts.length != 4) {
+        if (parts.length != 5) {
             return -ErrorCodes.EISDIR();
         }
+        
+        String serverName = parts[1];
+        // 检查服务器是否为只读模式
+        if (multiNacosService.isReadOnly(serverName)) {
+            System.err.println("Server " + serverName + " is read-only");
+            return -ErrorCodes.EROFS();
+        }
+        
         // FUSE中创建文件后通常会立即写入，这里返回成功
         return super.create(path, mode, fi);
     }
@@ -139,15 +170,16 @@ removed ‘Sample file.txt’
         // 注意：实际删除配置需要谨慎，这里暂时不支持删除
         String[] parts = splitPath(path);
 
-        if (parts.length != 4) {
+        if (parts.length != 5) {
             return -ErrorCodes.EISDIR();
         }
 
-        String namespace = parts[1].equals("_default") ? "" : parts[1];
-        String group = parts[2];
-        String fileName = parts[3];
+        String serverName = parts[1];
+        String namespace = parts[2].equals("_default") ? "" : parts[2];
+        String group = parts[3];
+        String fileName = parts[4];
 
-        List<NacosConfig> configs = get_configs(namespace);
+        List<NacosConfig> configs = getConfigs(serverName, namespace);
         Optional<NacosConfig> configOpt = configs.stream()
                 .filter(c -> c.getGroup().equals(group) && c.getFileName().equals(fileName))
                 .findFirst();
@@ -172,15 +204,22 @@ removed ‘Sample file.txt’
 
         String[] parts = splitPath(newName);
 
-        if (parts.length != 4) {
+        if (parts.length != 5) {
             return -ErrorCodes.EISDIR();
         }
 
-        String namespace = parts[1].equals("_default") ? "" : parts[1];
-        String group = parts[2];
-        String fileName = parts[3];
+        String serverName = parts[1];
+        String namespace = parts[2].equals("_default") ? "" : parts[2];
+        String group = parts[3];
+        String fileName = parts[4];
+        
+        // 检查服务器是否为只读模式
+        if (multiNacosService.isReadOnly(serverName)) {
+            System.err.println("Server " + serverName + " is read-only");
+            return -ErrorCodes.EROFS();
+        }
 
-        List<NacosConfig> configs = get_configs(namespace);
+        List<NacosConfig> configs = getConfigs(serverName, namespace);
         Optional<NacosConfig> configOpt = configs.stream()
                 .filter(c -> c.getGroup().equals(group) && c.getFileName().equals(fileName))
                 .findFirst();
@@ -190,7 +229,7 @@ removed ‘Sample file.txt’
             // Implement rename logic manually instead of calling super.rename()
             // Get the source path components
             String[] srcParts = splitPath(path);
-            if (srcParts.length != 4) {
+            if (srcParts.length != 5) {
                 return -ErrorCodes.EISDIR();
             }
             
@@ -248,6 +287,8 @@ removed ‘Sample file.txt’
         if (ret < 0) {
             return -ErrorCodes.EIO();
         }
+        
+        NacosService nacosService = multiNacosService.getNacosService(serverName);
         boolean res = nacosService.publishConfig(namespace, configOpt.get().getDataId(), group, buf.getString(0), configOpt.get().getType());
         if (!res) {
             return -ErrorCodes.EIO();
@@ -306,15 +347,16 @@ removed ‘Sample file.txt’
     private NacosConfig getNacosConfigWithPath(String path) {
         String[] parts = splitPath(path);
 
-        if (parts.length != 4) {
+        if (parts.length != 5) {
             return null;
         }
 
-        String namespace = parts[1].equals("_default") ? "" : parts[1];
-        String group = parts[2];
-        String fileName = parts[3];
+        String serverName = parts[1];
+        String namespace = parts[2].equals("_default") ? "" : parts[2];
+        String group = parts[3];
+        String fileName = parts[4];
 
-        List<NacosConfig> configs = get_configs(namespace);
+        List<NacosConfig> configs = getConfigs(serverName, namespace);
         Optional<NacosConfig> configOpt = configs.stream()
                 .filter(c -> c.getGroup().equals(group) && c.getFileName().equals(fileName))
                 .findFirst();
@@ -324,8 +366,12 @@ removed ‘Sample file.txt’
     /**
      * 辅助方法：获取配置列表（带缓存）
      */
-    private List<NacosConfig> get_configs(String namespace) {
-        return configsCache.computeIfAbsent(namespace, ns -> nacosService.getConfigs(ns));
+    private List<NacosConfig> getConfigs(String serverName, String namespace) {
+        String cacheKey = serverName + ":" + namespace;
+        return configsCache.computeIfAbsent(cacheKey, key -> {
+            NacosService nacosService = multiNacosService.getNacosService(serverName);
+            return nacosService.getConfigs(namespace);
+        });
     }
     
     /**

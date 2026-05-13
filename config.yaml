@@ -1,0 +1,11 @@
+nacos:
+  servers:
+    - name: nacos-server1
+      url: http://127.0.0.1:8848
+      namespace-pattern: "*"
+      read-only: false
+    - name: nacos-server2
+      url: http://127.0.0.1:8849
+      namespace-pattern: "^(test|dev)$"
+      read-only: true
+
